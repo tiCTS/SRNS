@@ -5,8 +5,8 @@
 %% Initialization settings
 
 % Q or R or AHRS attitude directly
-USE_Q = true;
-USE_R = false;
+USE_Q = false;
+USE_R = true;
 USE_AHRS = false;
 
 SRPL_DATA = false;
@@ -17,7 +17,7 @@ GPS_UPDATE = false;
 % Use Kalman Filter
 USE_KF = true;
 % USE_KF = false;
-USE_ATT_KF = false;
+
 
 ZERO_V_UPDATE = true;
 % ZERO_V_UPDATE = false;
@@ -37,7 +37,7 @@ sigma_AB = single(1.954e-04); %1.954e-04;  %m/s^2
 TBA = single(1); %sec
 TBG_X = single(10);
 TBG_Y = single(10);
-TBG_Z = single(1);
+TBG_Z = single(5);
 TBGinv = [1/TBG_X 0 0; 0 1/TBG_Y 0; 0 0 1/TBG_Z];
 TBGM = [TBG_X 0 0; 0 TBG_Y 0; 0 0 TBG_Z];
 
@@ -92,19 +92,21 @@ del_x = single(zeros(12,1));
 P = single(1e-3*eye(12));
 % P_att = signle()
 Q = single(1e-4);
-R_zv = single(1e-6*eye(6));
+R_zv = single([1e-6*eye(3) zeros(3,4); ...
+                          zeros(3,3) 1*eye(3) zeros(3,1); ...
+                          zeros(1,6) 1e-2]);
 
 %% Propagate
-% for idx = 2:size(imu,1)
-for idx = 2:3000
+for idx = 2:size(imu,1)
+% for idx = 2:3000
     % claculate params
     M = (a_Earth*(1-e_sq_Earth))/(1 - e_sq_Earth*sin(gps_pos(1,idx-1))^2)^(3/2);
     N = a_Earth/(1 - e_sq_Earth*sin(gps_pos(1,idx-1))^2)^(1/2);
 
      % get new imu measurement
-     w_t2 = single( [ imu.GyroX(idx); imu.GyroY(idx); imu.GyroZ(idx)]); %- dw(:,idx-1);
-     w_t2_LU = QuatVectorTrans(q_b2LU(idx-1), w_t2);
-    % w_t2_LU = R_b2LU_t1 * w_t1;
+     w_t2 = single( [ imu.GyroX(idx); imu.GyroY(idx); imu.GyroZ(idx)])- dw(:,idx-1);
+%      w_t2_LU = QuatVectorTrans(q_b2LU(idx-1), w_t2);
+    w_t2_LU = R_b2LU_t1 * w_t1;
      a_t2 = single([ imu.AccX(idx); imu.AccY(idx); imu.AccZ(idx)]);
     % get dt
      dt = single(imu.SRNS_time(idx) - imu.SRNS_time(idx-1));
@@ -114,11 +116,11 @@ for idx = 2:3000
       if USE_Q
           q_b2LU(idx) = Quaternion1stInt(w_t1_LU, w_t2_LU, q_b2LU(idx-1), dt);
           R_b2LU_t2 = Quat2Rot(q_b2LU(idx));
-          [qq0,qq1,qq2,qq3] = parts(q_b2LU(idx));  % for debug
+%           [qq0,qq1,qq2,qq3] = parts(q_b2LU(idx));  % for debug
           eulZYX(idx,:) = rad2deg(quat2eul(q_b2LU(idx),'ZYX'));
       end
       if USE_R
-          R_b2LU_t2 = rt_integration_LLF(R_b2LU_t1, w_t1, wE_l, w_el_l, dt);
+          R_b2LU_t2 = rt_integration_LLF(R_b2LU_t1, w_t1_LU, wE_l, w_el_l, dt);
           eulZYX(idx,:) = rad2deg(rotm2eul(R_b2LU_t2, 'ZYX'));
       end
       if USE_AHRS
@@ -145,15 +147,19 @@ for idx = 2:3000
 
         % gps position propagation
 %         lat_next = gps_lat_propagation_RK4(vel(:,idx-1), vel(:,idx), gps_pos(1,idx-1),gps_pos(3,idx-1),dt);
-        lat_next = gps_lat_propagation_ZOH(vel(:,idx-1), gps_pos(1,idx-1),gps_pos(3,idx-1),dt);
+%         lat_next = gps_lat_propagation_ZOH(vel(:,idx-1), gps_pos(1,idx-1),gps_pos(3,idx-1),dt);
+            lat_next = gps_lat_propagation_FOH(vel(:,idx-1), vel(:,idx), gps_pos(1,idx-1), gps_pos(3,idx-1), M, dt);
 %         long_next = gps_long_propagation_RK4(vel(:,idx-1), vel(:,idx), gps_pos(2,idx-1), lat_next, gps_pos(3,idx-1), dt);
-        long_next = gps_long_propagation_ZOH(vel(:,idx-1), gps_pos(2,idx-1), lat_next, gps_pos(3,idx-1), dt );    
+%         long_next = gps_long_propagation_ZOH(vel(:,idx-1), gps_pos(2,idx-1), lat_next, gps_pos(3,idx-1), dt );    
+            long_next = gps_long_propagation_FOH(vel(:,idx-1), vel(:,idx), lat_next, gps_pos(2,idx-1),gps_pos(3,idx-1), N, dt);
 %         alt_next = gps_alt_propagation_RK4(vel(:,idx-1), vel(:,idx), gps_pos(3,idx-1), dt);
         alt_next = gps_alt_propagation_ZOH(vel(:,idx-1), gps_pos(3,idx-1), dt);
-        gps_pos(:,idx) = [lat_next; long_next; alt_next];
+%             alt_next = gps_alt_propagation_FOH(vel(:,idx-1), vel(:,idx), gps_pos(3,idx-1), dt);
+
+            gps_pos(:,idx) = [lat_next; long_next; alt_next];
 
         % bias
-       dw(:,idx) = dw(:,idx-1);% -  TBGinv*dw(:,idx-1)*dt;
+       dw(:,idx) = dw(:,idx-1) -  TBGinv*dw(:,idx-1)*dt;
         
 
         if USE_KF
@@ -171,11 +177,11 @@ for idx = 2:3000
 
             w_il_l = wE_l + w_el_l;
              F_dang_dang =  -skewMatrix(w_il_l) ;
-             F_dang_dw = R_b2LU_t1; %-eye(3);
+             F_dang_dw = R_b2LU_t1; 
 
-             % F_dw_dw = -TBGinv*eye(3); 
+             F_dw_dw = -TBGinv*eye(3); 
               % F_dw_dw = eye(3);
-               F_dw_dw = zeros(3,3);
+%                F_dw_dw = zeros(3,3);
 
               % F structure
     %       dr   dv   dang  dw
@@ -189,7 +195,7 @@ for idx = 2:3000
                     zeros(3,3) F_dang_dv F_dang_dang F_dang_dw;
                     zeros(3,9) F_dw_dw];
             G_dw = sqrt( 2*TBGM*(sigma_GB^2)*ones(3,1));
-            G = [zeros(9,1); -R_b2LU_t1*G_dw];
+            G = [zeros(9,1); G_dw];
 
             % State transition matrix
             StateTrans = eye(12) + dt * F ; % 1st-order approx.
@@ -199,6 +205,7 @@ for idx = 2:3000
 
             % Updates include zero V and mag
             if ZERO_V_UPDATE
+
                 mag_meas = [imu.MagX(idx); imu.MagY(idx); imu.MagZ(idx)];
                 mag_meas_t1 = [imu.MagX(idx-1); imu.MagY(idx-1); imu.MagZ(idx-1)];
 
@@ -207,11 +214,14 @@ for idx = 2:3000
                 del_z_mag = (mag_meas - mag_pre_t2);
 
                 del_z_zv = single([0;0;0]) - vel(:,idx);
+                del_z_az = single(eulZYX(1,1) - eulZYX(idx,1));
 
-                del_z = [del_z_zv; del_z_mag];
-                
-                H_ZV = single([zeros(3,3) eye(3) zeros(3,6); ...
-                                           zeros(3,6)  -skewMatrix(mag_pre_t2) zeros(3,3)]);
+                del_z = [del_z_zv; del_z_mag; del_z_az];
+
+                               
+                H_ZV = single([zeros(3,3) eye(3) zeros(3,6);...
+                    zeros(3,6) -skewMatrix(mag_pre_t2)   zeros(3,3); ...
+                    zeros(1,8) 1 zeros(1,3)]);
 
                 
                 S = (H_ZV*P_next*H_ZV' + R_zv);
@@ -223,14 +233,14 @@ for idx = 2:3000
                 gps_pos(:,idx) = gps_pos(:,idx) + del_x_next(1:3);
                 vel(:,idx) = vel(:,idx) + del_x_next(4:6);
 %                 del_x_next(9) = -del_x_next(9);
-                del_ang = [del_x_next(7); del_x_next(8); del_x_next(9)];
-                dq = quaternion([single(1) 0.5*del_ang']);
-                dq = normalize(dq);
-                q_b2LU(idx) = dq*q_b2LU(idx);
-                [qq0,qq1,qq2,qq3] = parts(q_b2LU(idx));  % for debug
-                R_b2LU_t2 = Quat2Rot(q_b2LU(idx));
-%                 del_R = (eye(3) + skewMatrix(del_x_next(7:9)));
-%                 R_b2LU_t2 = del_R*R_b2LU_t2;
+%                 del_ang = [del_x_next(7); del_x_next(8); del_x_next(9)];
+%                 dq = quaternion([single(1) 0.5*del_ang']);
+%                 dq = normalize(dq);
+%                 q_b2LU(idx) = dq*q_b2LU(idx);
+%                 [qq0,qq1,qq2,qq3] = parts(q_b2LU(idx));  % for debug
+%                 R_b2LU_t2 = Quat2Rot(q_b2LU(idx));
+                del_R = (eye(3) + skewMatrix(del_x_next(7:9)));  % equation 5.97 in 2007 book
+                R_b2LU_t2 = del_R*R_b2LU_t2;
                 dw(:,idx) = del_x_next(10:12);
 %                 if idx >= 15000
 %                     w_t1 = w_t2;  % JUST CREATE A BREAK POINT HERE FOR DEBUG
