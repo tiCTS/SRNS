@@ -12,7 +12,7 @@
 %   R_next : the rotation matirx after dt, 3x3 matrix
 function R_next = rt_integration_LLF(R, w, wE_l, w_el_l,  dt)
     S_ib_b = skewMatrix(dt.*w);
-    w_il_b = R*(wE_l + w_el_l);
+    w_il_b = R'*(wE_l + w_el_l);
     S_il_b = skewMatrix( dt.* w_il_b);
 
     % the coefficients

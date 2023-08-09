@@ -94,7 +94,7 @@ P = single(1e-3*eye(12));
 Q = single(1e-4);
 R_zv = single([1e-6*eye(3) zeros(3,4); ...
                           zeros(3,3) 1*eye(3) zeros(3,1); ...
-                          zeros(1,6) 1e-2]);
+                          zeros(1,6) 1e-3]);
 
 %% Propagate
 for idx = 2:size(imu,1)
@@ -106,7 +106,7 @@ for idx = 2:size(imu,1)
      % get new imu measurement
      w_t2 = single( [ imu.GyroX(idx); imu.GyroY(idx); imu.GyroZ(idx)])- dw(:,idx-1);
 %      w_t2_LU = QuatVectorTrans(q_b2LU(idx-1), w_t2);
-    w_t2_LU = R_b2LU_t1 * w_t1;
+    w_t2_LU = R_b2LU_t1 * w_t2;
      a_t2 = single([ imu.AccX(idx); imu.AccY(idx); imu.AccZ(idx)]);
     % get dt
      dt = single(imu.SRNS_time(idx) - imu.SRNS_time(idx-1));
@@ -120,7 +120,7 @@ for idx = 2:size(imu,1)
           eulZYX(idx,:) = rad2deg(quat2eul(q_b2LU(idx),'ZYX'));
       end
       if USE_R
-          R_b2LU_t2 = rt_integration_LLF(R_b2LU_t1, w_t1_LU, wE_l, w_el_l, dt);
+          R_b2LU_t2 = rt_integration_LLF(R_b2LU_t1, w_t1, wE_l, w_el_l, dt);
           eulZYX(idx,:) = rad2deg(rotm2eul(R_b2LU_t2, 'ZYX'));
       end
       if USE_AHRS
@@ -241,6 +241,7 @@ for idx = 2:size(imu,1)
 %                 R_b2LU_t2 = Quat2Rot(q_b2LU(idx));
                 del_R = (eye(3) + skewMatrix(del_x_next(7:9)));  % equation 5.97 in 2007 book
                 R_b2LU_t2 = del_R*R_b2LU_t2;
+                eulZYX(idx,:) = rad2deg(rotm2eul(R_b2LU_t2, 'ZYX')); % euler angle correction
                 dw(:,idx) = del_x_next(10:12);
 %                 if idx >= 15000
 %                     w_t1 = w_t2;  % JUST CREATE A BREAK POINT HERE FOR DEBUG
